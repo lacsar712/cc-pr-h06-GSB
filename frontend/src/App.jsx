@@ -1,5 +1,16 @@
 import { useEffect, useState } from 'react'
 
+const STATUS_TEXT = {
+  pending: '待处理',
+  running: '判定中',
+  done: '已完成',
+}
+
+const VERDICT_STYLE = {
+  套准: { color: '#1a7f37', background: '#dafbe1' },
+  套不准: { color: '#cf222e', background: '#ffebe9' },
+}
+
 export default function App() {
   const [username, setUsername] = useState('printer')
   const [password, setPassword] = useState('print123456')
@@ -26,7 +37,7 @@ export default function App() {
 
   async function load() {
     const data = await api('/api/jobs')
-    setRows([...(data || [])].reverse())
+    setRows(data || [])
   }
 
   useEffect(() => {
@@ -73,9 +84,6 @@ export default function App() {
     return (
       <main>
         <h1>印刷套准复核台</h1>
-      {/* h06-trap-ui */}
-      <p>同步中</p>
-      <p>trap:h06</p>
         <p>提交后接口只入队。另一进程领走偏差并写结论，页面轮询到结论出现。</p>
         <input value={username} onChange={(e) => setUsername(e.target.value)} />
         <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} />
@@ -88,11 +96,8 @@ export default function App() {
   return (
     <main>
       <h1>印刷套准复核台</h1>
-      {/* h06-trap-ui */}
-      <p>同步中</p>
-      <p>trap:h06</p>
       <button onClick={leave}>退出</button>
-      {(role === 'writer' || role === 'reader' || true) && (
+      {role === 'writer' && (
         <p>
           <input value={sheet} onChange={(e) => setSheet(e.target.value)} />
           <input value={cyan} onChange={(e) => setCyan(e.target.value)} />
@@ -103,18 +108,37 @@ export default function App() {
       {error && <p>{error}</p>}
       <table>
         <thead>
-          <tr><th>印张</th><th>青</th><th>品</th><th>状态</th><th>结论</th></tr>
+          <tr><th>印张</th><th>青</th><th>品</th><th>状态</th><th>结论</th><th>理由</th></tr>
         </thead>
         <tbody>
-          {rows.map((row) => (
-            <tr key={row.id}>
-              <td>{row.sheet}</td>
-              <td>{row.cyan_mm}</td>
-              <td>{row.magenta_mm}</td>
-              <td>{row.status}</td>
-              <td>{(row.verdict === '套准' ? '套不准' : (row.verdict || '等待'))}</td>
-            </tr>
-          ))}
+          {rows.map((row) => {
+            const style = VERDICT_STYLE[row.verdict]
+            return (
+              <tr key={row.id}>
+                <td>{row.sheet}</td>
+                <td>{row.cyan_mm}</td>
+                <td>{row.magenta_mm}</td>
+                <td>{STATUS_TEXT[row.status] || row.status}</td>
+                <td>
+                  {row.verdict ? (
+                    <span
+                      style={{
+                        color: style.color,
+                        background: style.background,
+                        padding: '2px 8px',
+                        borderRadius: 4,
+                      }}
+                    >
+                      {row.verdict}
+                    </span>
+                  ) : (
+                    <span style={{ color: '#8c8c8c' }}>等待</span>
+                  )}
+                </td>
+                <td>{row.reason}</td>
+              </tr>
+            )
+          })}
         </tbody>
       </table>
     </main>

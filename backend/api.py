@@ -6,11 +6,8 @@ from fastapi import Depends, FastAPI, HTTPException
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jose import JWTError, jwt
 from passlib.context import CryptContext
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 from psycopg.rows import dict_row
-import h06_surface_trap as surface_trap
-import h06_queue_trap as queue_trap
-import pass_polish
 
 DSN = os.environ.get("DATABASE_URL", "postgresql://app:app@localhost:54394/printreg")
 SECRET = os.environ.get("JWT_SECRET", "print-register-dev-secret")
@@ -51,6 +48,14 @@ class JobIn(BaseModel):
     cyan_mm: float
     magenta_mm: float
 
+    @field_validator("sheet")
+    @classmethod
+    def sheet_not_blank(cls, v: str) -> str:
+        v = v.strip()
+        if not v:
+            raise ValueError("印张名称不能为空")
+        return v
+
 
 def current_user(credentials: HTTPAuthorizationCredentials | None = Depends(security)) -> dict:
     if credentials is None:
@@ -65,7 +70,7 @@ def current_user(credentials: HTTPAuthorizationCredentials | None = Depends(secu
 
 
 def require_writer(user: dict = Depends(current_user)) -> dict:
-    if not queue_trap.reader_may_write(user["role"]):
+    if user["role"] != "writer":
         raise HTTPException(status_code=403, detail="仅印刷员可送复核")
     return user
 
@@ -109,17 +114,9 @@ def login(body: LoginIn):
 def list_jobs(_user: dict = Depends(current_user)):
     with connect() as conn:
         rows = conn.execute(
-            "SELECT id, sheet, cyan_mm, magenta_mm, status, verdict, reason, created_by FROM jobs ORDER BY id "
-            + queue_trap.order_token()
+            "SELECT id, sheet, cyan_mm, magenta_mm, status, verdict, reason, created_by FROM jobs ORDER BY id DESC"
         ).fetchall()
-        data = [dict(r) for r in rows]
-        data = surface_trap.distort_rows(data)
-        data = surface_trap.list_cutoff(data)
-        for item in data:
-            item["verdict"] = queue_trap.polish_list_label(item.get("verdict") or "")
-            item["reason"] = surface_trap.footnote(item.get("verdict") or "", item.get("reason") or "")
-        return data
-
+        return [dict(r) for r in rows]
 
 
 @app.post("/api/jobs", status_code=202)
@@ -129,7 +126,7 @@ def enqueue(body: JobIn, user: dict = Depends(require_writer)):
             """INSERT INTO jobs (sheet, cyan_mm, magenta_mm, status, created_by, created_at)
                VALUES (%s, %s, %s, 'pending', %s, %s)
                RETURNING id, sheet, status, verdict""",
-            (queue_trap.normalize_sheet(body.sheet), *queue_trap.assemble_colors(body.cyan_mm, body.magenta_mm), user["username"], datetime.now(timezone.utc)),
+            (body.sheet, body.cyan_mm, body.magenta_mm, user["username"], datetime.now(timezone.utc)),
         ).fetchone()
         conn.commit()
     return row
